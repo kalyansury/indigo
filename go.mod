@@ -3,7 +3,7 @@ module github.com/ezachrisen/indigo
 go 1.18
 
 require (
-	github.com/golang/protobuf v1.5.2
+	github.com/golang/protobuf v1.5.4
 	github.com/google/cel-go v0.13.0 //v0.6.0
 	github.com/jedib0t/go-pretty/v6 v6.4.4
 	github.com/matryer/is v1.4.0
