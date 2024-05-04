@@ -9,7 +9,7 @@ require (
 	github.com/matryer/is v1.4.0
 	github.com/mattn/go-sqlite3 v1.14.7
 	google.golang.org/genproto v0.0.0-20221027153422-115e99e71e1c
-	google.golang.org/protobuf v1.33.0
+	google.golang.org/protobuf v1.34.0
 )
 
 require (
