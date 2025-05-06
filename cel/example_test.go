@@ -9,7 +9,6 @@ import (
 	"github.com/ezachrisen/indigo/cel"
 	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
-
 	"github.com/ezachrisen/indigo/testdata/school"
 )
 
@@ -193,7 +192,7 @@ func Example_map() {
 }
 
 // Demonstrates using the in operator on lists and maps
-func ExampleIn() {
+func Example_in() {
 
 	schema := indigo.Schema{
 		Elements: []indigo.DataElement{
