@@ -122,7 +122,7 @@ done: // break out of inner switch
 			// Decide if we should return the child rule's result or not
 			switch result.Pass {
 			case true:
-				if o.DiscardPass == false {
+				if !o.DiscardPass {
 					u.Results[cr.ID] = result
 				}
 			case false:
@@ -131,7 +131,7 @@ done: // break out of inner switch
 					u.Results[cr.ID] = result
 				case Discard:
 				case DiscardOnlyIfExpressionFailed:
-					if result.ExpressionPass == true {
+					if result.ExpressionPass {
 						u.Results[cr.ID] = result
 					}
 				}

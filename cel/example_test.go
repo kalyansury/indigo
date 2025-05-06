@@ -7,9 +7,9 @@ import (
 
 	"github.com/ezachrisen/indigo"
 	"github.com/ezachrisen/indigo/cel"
+	"github.com/ezachrisen/indigo/testdata/school"
 	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
-	"github.com/ezachrisen/indigo/testdata/school"
 )
 
 func Example() {
@@ -139,13 +139,21 @@ func Example_list() {
 
 	// Check the value of a specific element
 	rule.Expr = `grades[1] == 3.6`
-	engine.Compile(&rule)
+	err = engine.Compile(&rule)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
 	results, _ = engine.Eval(context.Background(), &rule, data)
 	fmt.Println("Is element 1 == 3.6? ", results.ExpressionPass)
 
 	// Check if the list contains a value
 	rule.Expr = `grades.exists(g, g < 3.0)`
-	engine.Compile(&rule)
+	err = engine.Compile(&rule)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
 	results, _ = engine.Eval(context.Background(), &rule, data)
 	fmt.Println("Any grades below 3.0? ", results.ExpressionPass)
 
