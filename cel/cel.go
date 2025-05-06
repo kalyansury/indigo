@@ -77,7 +77,6 @@ func (e *Evaluator) Compile(expr string, s indigo.Schema, resultType indigo.Type
 			return
 		}
 		e.fixedEnv = env
-		return
 	})
 
 	if err != nil {
