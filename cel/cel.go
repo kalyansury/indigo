@@ -110,6 +110,7 @@ func (e *Evaluator) Compile(expr string, s indigo.Schema, resultType indigo.Type
 		return nil, fmt.Errorf("checking rule:\n%w", iss.Err())
 	}
 
+	//lint:ignore SA1019 // Need to fix underlying implementation
 	if err := doTypesMatch(c.ResultType(), resultType); err != nil {
 		return nil, fmt.Errorf("result type mismatch: %w", err)
 	}
