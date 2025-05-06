@@ -186,7 +186,7 @@ func (r *Rule) sortChildRules(fn func(rules []*Rule, i, j int) bool, force bool)
 	}
 
 	//	fmt.Println("  ", op, force, "getting keys for ", r.ID)
-	keys := make([]*Rule, len(r.Rules), len(r.Rules))
+	keys := make([]*Rule, len(r.Rules))
 	var i int
 	for k := range r.Rules {
 		keys[i] = r.Rules[k]
