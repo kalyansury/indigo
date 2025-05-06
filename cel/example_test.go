@@ -356,7 +356,7 @@ func Example_protoOneof() {
 		"student": &school.Student{
 			Status: school.Student_ENROLLED,
 			HousingAddress: &school.Student_OnCampus{
-				&school.Student_CampusAddress{
+				OnCampus: &school.Student_CampusAddress{
 					Building: "Hershey",
 					Room:     "308",
 				},
