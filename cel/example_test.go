@@ -957,7 +957,7 @@ func Example_alarmsTwoLevel() {
 		Expr:   "disk_free_space < 70",
 	}
 
-	memory_alarm := &indigo.Rule{
+	memoryAlarm := &indigo.Rule{
 		ID:    "memory_alarm",
 		Rules: map[string]*indigo.Rule{},
 		EvalOptions: indigo.EvalOptions{
@@ -966,19 +966,19 @@ func Example_alarmsTwoLevel() {
 		},
 	}
 
-	memory_alarm.Rules["memory_utilization_alarm"] = &indigo.Rule{
+	memoryAlarm.Rules["memory_utilization_alarm"] = &indigo.Rule{
 		ID:     "memory_utilization_alarm",
 		Schema: sysmetrics,
 		Expr:   "memory_utilization > 90",
 	}
 
-	memory_alarm.Rules["memory_remaining_alarm"] = &indigo.Rule{
+	memoryAlarm.Rules["memory_remaining_alarm"] = &indigo.Rule{
 		ID:     "memory_remaining_alarm",
 		Schema: sysmetrics,
 		Expr:   "memory_mb_remaining < 16",
 	}
 
-	rule.Rules["memory_alarm"] = memory_alarm
+	rule.Rules["memory_alarm"] = memoryAlarm
 
 	engine := indigo.NewEngine(cel.NewEvaluator())
 

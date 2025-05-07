@@ -271,7 +271,7 @@ func TestEvalOptionsExpressionPassFail(t *testing.T) {
 		want func() map[string]bool // a function returning an edited copy of w after options are applied
 	}{
 		"Default Options": {
-			prep: func(r *indigo.Rule) {
+			prep: func(_ *indigo.Rule) {
 			},
 			want: func() map[string]bool {
 				return copyMap(w)
@@ -446,7 +446,7 @@ func TestEvalOptionsRulePassFail(t *testing.T) {
 		want func() map[string]bool // a function returning an edited copy of w after options are applied
 	}{
 		"Default Options": {
-			prep: func(r *indigo.Rule) {
+			prep: func(_ *indigo.Rule) {
 			},
 			want: func() map[string]bool {
 				return copyMap(w)

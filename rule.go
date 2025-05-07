@@ -162,9 +162,9 @@ func (r *Rule) rulesToRows(n int) ([]table.Row, int) {
 	maxExprLength := len(r.Expr)
 
 	for _, c := range r.Rules {
-		cr, max := c.rulesToRows(n + 1)
-		if max > maxExprLength {
-			maxExprLength = max
+		cr, maxLen := c.rulesToRows(n + 1)
+		if maxLen > maxExprLength {
+			maxExprLength = maxLen
 		}
 		rows = append(rows, cr...)
 	}

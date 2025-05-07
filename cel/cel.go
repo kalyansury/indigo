@@ -30,7 +30,7 @@ type celProgram struct {
 
 // NewEvaluator creates a new CEL Evaluator.
 // The evaluator contains internal data used to facilitate CEL expression evaluation.
-func NewEvaluator(opts ...CelOption) *Evaluator {
+func NewEvaluator(opts ...Option) *Evaluator {
 	e := &Evaluator{}
 	for _, o := range opts {
 		o(e)
@@ -38,14 +38,14 @@ func NewEvaluator(opts ...CelOption) *Evaluator {
 	return e
 }
 
-type CelOption func(e *Evaluator)
+type Option func(e *Evaluator)
 
 // FixedSchema mandates that the evaluator will use this schema for all
 // compilations and evaluations. Schemas set on rules will be ignored.  CEL's
 // process to create a celgo.Env from a schema is time consuming; setting the
 // FixedSchema option reduces compilation time by 25% or more. The schema will
 // be evaluated the first time compilation runs.
-func FixedSchema(schema *indigo.Schema) CelOption {
+func FixedSchema(schema *indigo.Schema) Option {
 	return func(e *Evaluator) {
 		e.fixedSchema = schema
 	}
@@ -110,8 +110,8 @@ func (e *Evaluator) Compile(expr string, s indigo.Schema, resultType indigo.Type
 		return nil, fmt.Errorf("checking rule:\n%w", iss.Err())
 	}
 
-	//lint:ignore SA1019 // Need to fix underlying implementation
-	if err := doTypesMatch(c.ResultType(), resultType); err != nil {
+	//lint:ignore SA1019 Compatibility with older CEL-Go versions
+	if err = doTypesMatch(c.ResultType(), resultType); err != nil {
 		return nil, fmt.Errorf("result type mismatch: %w", err)
 	}
 
