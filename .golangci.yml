@@ -1,0 +1,25 @@
+# This file is used to configure golangci-lint, a Go linter aggregator.
+# It specifies which linters to enable, their settings, and how to run them.
+# It also includes settings for issues, tests, and other configurations.
+# For more information, see: https://golangci-lint.run/usage/configuration/
+
+version: "2"
+
+run:
+  timeout: 5m
+
+linters:
+  enable:
+    - govet
+    - staticcheck
+    - revive
+    - errcheck
+    - gofmt
+    - unused
+# staticcheckSettings:
+#   staticcheck:
+#     checks:
+#       - all
+#     # Exclude deprecated warnings (e.g., ResultType)
+#     exclude:
+#       - SA1019

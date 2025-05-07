@@ -6,7 +6,6 @@ full_test: race_test test benchmark
 race_test:
 	go test -v -race ./...
 
-
 benchmark:
 	@echo "Benchmarking results saved in ./testdata/benchmarks/after.txt"
 	go test  -bench=. -count 5 -benchmem ./... | tee ./testdata/benchmarks/after.txt
@@ -14,6 +13,8 @@ benchmark:
 stats:
 	benchstat ./testdata/benchmarks/reference.txt ./testdata/benchmarks/after.txt
 
+lint: 
+	golangci-lint run ./...
 
 # echo "----- Running benchmarks"
 # if ! [ -x "$(command -v benchstat)" ]

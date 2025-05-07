@@ -708,8 +708,8 @@ func Example_protoNestedMessages() {
 		"x": &school.Student{
 			Grades: []float64{3.0, 2.9, 4.0, 2.1},
 			Suspensions: []*school.Student_Suspension{
-				&school.Student_Suspension{Cause: "Cheating"},
-				&school.Student_Suspension{Cause: "Fighting"},
+				{Cause: "Cheating"},
+				{Cause: "Fighting"},
 			},
 		},
 	}
@@ -753,8 +753,8 @@ func Example_protoConstruction() {
 		"s": &school.Student{
 			Grades: []float64{3.0, 2.9, 4.0, 2.1},
 			Suspensions: []*school.Student_Suspension{
-				&school.Student_Suspension{Cause: "Cheating"},
-				&school.Student_Suspension{Cause: "Fighting"},
+				{Cause: "Cheating"},
+				{Cause: "Fighting"},
 			},
 		},
 	}
@@ -810,8 +810,8 @@ func Example_protoConstructionConditional() {
 			Gpa:    4.0,
 			Grades: []float64{3.0, 2.9, 4.0, 2.1},
 			Suspensions: []*school.Student_Suspension{
-				&school.Student_Suspension{Cause: "Cheating"},
-				&school.Student_Suspension{Cause: "Fighting"},
+				{Cause: "Cheating"},
+				{Cause: "Fighting"},
 			},
 		},
 	}
