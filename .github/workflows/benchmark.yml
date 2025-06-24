@@ -1,0 +1,100 @@
+name: Benchmark
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  schedule:
+    # Run benchmarks daily at 2 AM UTC
+    - cron: "0 2 * * *"
+
+jobs:
+  benchmark:
+    name: Benchmark
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Need full history for benchmark comparison
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.23"
+
+      - name: Cache Go modules
+        uses: actions/cache@v4
+        with:
+          path: ~/go/pkg/mod
+          key: ${{ runner.os }}-go-1.23-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-1.23-
+
+      - name: Install benchstat
+        run: go install golang.org/x/perf/cmd/benchstat@latest
+
+      - name: Run benchmarks
+        run: |
+          COMMIT_HASH=$(git rev-parse --short HEAD)
+          TIMESTAMP=$(date +%Y-%m-%d-%H-%M-%S)
+          BENCHMARK_FILE="./testdata/benchmarks/${TIMESTAMP}-${COMMIT_HASH}.txt"
+          mkdir -p ./testdata/benchmarks
+          echo "Running benchmarks and saving to $BENCHMARK_FILE"
+          go test -timeout 30m -bench=. -count 5 -benchmem ./... | tee "$BENCHMARK_FILE"
+          echo "BENCHMARK_FILE=$BENCHMARK_FILE" >> $GITHUB_ENV
+
+      - name: Compare with previous benchmark (if available)
+        run: |
+          # Find the most recent benchmark file (excluding the one we just created)
+          PREVIOUS=$(find ./testdata/benchmarks -name "*.txt" -type f | grep -v "$(basename $BENCHMARK_FILE)" | sort -r | head -1)
+          if [ -n "$PREVIOUS" ] && [ -f "$PREVIOUS" ]; then
+            echo "Comparing with previous benchmark: $PREVIOUS"
+            echo "## Benchmark Comparison" >> benchmark_result.md
+            echo '```' >> benchmark_result.md
+            benchstat "$PREVIOUS" "$BENCHMARK_FILE" >> benchmark_result.md || true
+            echo '```' >> benchmark_result.md
+          else
+            echo "No previous benchmark found for comparison"
+            echo "## Benchmark Results" >> benchmark_result.md
+            echo '```' >> benchmark_result.md
+            cat "$BENCHMARK_FILE" >> benchmark_result.md
+            echo '```' >> benchmark_result.md
+          fi
+
+      - name: Comment benchmark results on PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            if (fs.existsSync('benchmark_result.md')) {
+              const benchmarkResult = fs.readFileSync('benchmark_result.md', 'utf8');
+              
+              github.rest.issues.createComment({
+                issue_number: context.issue.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: benchmarkResult
+              });
+            }
+
+      - name: Upload benchmark results
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results-${{ github.run_id }}
+          path: ${{ env.BENCHMARK_FILE }}
+          retention-days: 30
+
+      - name: Commit benchmark results
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add testdata/benchmarks/
+          if ! git diff --staged --quiet; then
+            git commit -m "Add benchmark results for $(git rev-parse --short HEAD)"
+            git push || echo "Failed to push benchmark results (this might be expected if branch is protected)"
+          fi

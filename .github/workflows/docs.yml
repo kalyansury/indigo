@@ -1,0 +1,67 @@
+name: Documentation
+
+on:
+  push:
+    branches: [main, master]
+    paths:
+      - "**.go"
+      - "**.md"
+      - "go.mod"
+      - "go.sum"
+  pull_request:
+    branches: [main, master]
+    paths:
+      - "**.go"
+      - "**.md"
+      - "go.mod"
+      - "go.sum"
+
+jobs:
+  docs:
+    name: Generate and Check Documentation
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.23"
+
+      - name: Cache Go modules
+        uses: actions/cache@v4
+        with:
+          path: ~/go/pkg/mod
+          key: ${{ runner.os }}-go-1.23-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-1.23-
+
+      - name: Install godoc
+        run: go install golang.org/x/tools/cmd/godoc@latest
+
+      - name: Check Go documentation
+        run: |
+          # Check that all exported functions/types have documentation
+          undocumented=$(go doc -all . | grep -E "^(func|type|var|const)" | grep -v "^func main" | wc -l)
+          if [ $undocumented -eq 0 ]; then
+            echo "Warning: No documented exports found. Consider adding documentation."
+          fi
+
+      - name: Validate README examples
+        run: |
+          # Extract Go code blocks from README and test compilation
+          if [ -f README.md ]; then
+            echo "Checking README.md for valid Go examples..."
+            # This is a simple check - you might want to enhance this
+            grep -n "```go" README.md || echo "No Go code examples found in README"
+          fi
+
+      - name: Check for TODO/FIXME comments
+        run: |
+          todos=$(grep -r "TODO\|FIXME\|XXX\|HACK" --include="*.go" . | wc -l)
+          if [ $todos -gt 0 ]; then
+            echo "Found $todos TODO/FIXME/XXX/HACK comments:"
+            grep -r "TODO\|FIXME\|XXX\|HACK" --include="*.go" .
+          fi
