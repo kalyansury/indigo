@@ -1,0 +1,112 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Create Release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+
+      - name: Cache Go modules
+        uses: actions/cache@v4
+        with:
+          path: ~/go/pkg/mod
+          key: ${{ runner.os }}-go-1.24-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-1.24-
+
+      - name: Run tests
+        run: make test
+
+      - name: Run race tests
+        run: make race_test
+
+      - name: Generate changelog
+        id: changelog
+        run: |
+          # Get the previous tag
+          PREVIOUS_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+
+          # Generate changelog
+          if [ -n "$PREVIOUS_TAG" ]; then
+            echo "## What's Changed" > CHANGELOG.md
+            echo "" >> CHANGELOG.md
+            git log --pretty=format:"* %s (%h)" $PREVIOUS_TAG..HEAD >> CHANGELOG.md
+            echo "" >> CHANGELOG.md
+            echo "" >> CHANGELOG.md
+            echo "**Full Changelog**: https://github.com/${{ github.repository }}/compare/$PREVIOUS_TAG...${{ github.ref_name }}" >> CHANGELOG.md
+          else
+            echo "## What's Changed" > CHANGELOG.md
+            echo "" >> CHANGELOG.md
+            echo "Initial release" >> CHANGELOG.md
+          fi
+
+          # Set output for use in release
+          echo "changelog-file=CHANGELOG.md" >> $GITHUB_OUTPUT
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Release ${{ github.ref_name }}
+          body_path: ${{ steps.changelog.outputs.changelog-file }}
+          draft: false
+          prerelease: ${{ contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  benchmark-release:
+    name: Release Benchmark
+    runs-on: ubuntu-latest
+    needs: release
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.23"
+
+      - name: Cache Go modules
+        uses: actions/cache@v4
+        with:
+          path: ~/go/pkg/mod
+          key: ${{ runner.os }}-go-1.23-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-1.23-
+
+      - name: Run release benchmark
+        run: |
+          VERSION=${{ github.ref_name }}
+          BENCHMARK_FILE="./testdata/benchmarks/${VERSION}.txt"
+          mkdir -p ./testdata/benchmarks
+          echo "Running benchmark for release $VERSION"
+          go test -timeout 30m -bench=. -count 5 -benchmem ./... | tee "$BENCHMARK_FILE"
+
+      - name: Commit release benchmark
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add testdata/benchmarks/
+          if ! git diff --staged --quiet; then
+            git commit -m "Add benchmark results for release ${{ github.ref_name }}"
+            git push origin HEAD:main || git push origin HEAD:master || echo "Failed to push benchmark results (this might be expected if branch is protected)"
+          fi

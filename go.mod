@@ -1,6 +1,6 @@
 module github.com/ezachrisen/indigo
 
-go 1.24.0
+go 1.24
 
 require (
 	github.com/google/cel-go v0.25.0
@@ -18,5 +18,4 @@ require (
 	golang.org/x/exp v0.0.0-20230515195305-f3d0a9c9a5cc // indirect
 	golang.org/x/sys v0.21.0 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20240826202546-f6391c0de4c7 // indirect
-
 )
