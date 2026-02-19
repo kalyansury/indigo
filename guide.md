@@ -1,6 +1,6 @@
 # Indigo Guide
 
-Indigo is a rules engine created to enable application developers to build systems whose logic can be controlled by end-users via rules. Rules are expressions (such as ``"a > b"``) that are evaluated, and the outcomes used to direct appliation logic. Indigo does not itself provide a language for expressions, relying instead on a backend compiler (```interface ExpressionCompiler```) and evaluator (```interface ExpressionEvaluator```) to provide that. You can create your own backend evaluator, or use the default one, Google's Common Expression Language, CEL.
+Indigo is a rules engine created to enable application developers to build systems whose logic can be controlled by end-users via rules. Rules are expressions (such as ``"a > b"``) that are evaluated, and the outcomes used to direct application logic. Indigo does not itself provide a language for expressions, relying instead on a backend compiler (```interface ExpressionCompiler```) and evaluator (```interface ExpressionEvaluator```) to provide that. You can create your own backend evaluator, or use the default one, Google's Common Expression Language, CEL.
 
 The purpose of the guide is to describe how Indigo's rules and the evaluation engine works. We encourage you to read the Indigo source code and examples as primary material, and consider this document as a companion to guide you through the concepts.
 
@@ -270,7 +270,7 @@ then
    set output = true 
 ```
 
-CEL derives the value of the output from the value of the expression, in this case a boolean, so the "if/then" construct is not needed. (CEL does support the if/then functionality with the :? operators which we will cover later in the book.)
+CEL derives the value of the output from the value of the expression, in this case a boolean, so the "if/then" construct is not needed. (CEL does support the if/then functionality with the `?:` operators which we will cover later in the guide.)
 
 ## Operators
 
@@ -427,7 +427,7 @@ This section is a deeper dive into how Indigo is organized. Knowing this will ma
 
 Indigo's rules engine is specified by an interface called Engine, which is composed of two interfaces, a Compiler and an Evaluator. The Compiler interface specifies the Compile method, and Evaluator specifies the Eval method.
 
-The DefaultEngine struct type implements the Engine interface, and most users will use this type. Since it implements Engine, DefaultEngine implements both Compile and Evaluate. Alternate implementations are possible, including rule evaluators that do not support compilation, for example.
+The DefaultEngine struct type implements the Engine interface, and most users will use this type. Since it implements Engine, DefaultEngine implements both Compile and Eval. Alternate implementations are possible, including rule evaluators that do not support compilation, for example.
 
 The engine types are concerned with processing groups of rules organized in a hierarchies. The engine types **do not** concern themselves with the exact nature of the expressions being compiled or evaluated. Instead, they rely on the expression types for that.
 
@@ -449,7 +449,7 @@ During compilation, an Engine may update a rule by setting the Program field to 
 
 ## Using a Non-CEL Evaluator
 
-There are several Go implementations of scripting languages, such as Javscript implemented by [Otto](https://github.com/robertkrimen/otto), and Lua. These languages are good choices for rule evaluation as well.
+There are several Go implementations of scripting languages, such as JavaScript implemented by [Otto](https://github.com/robertkrimen/otto), and Lua. These languages are good choices for rule evaluation as well.
 
 To illustrate how Indigo's interface types work together, here's how you could implement and use a different evaluator such as Otto:
 
@@ -542,7 +542,7 @@ rule := indigo.Rule{
 
 For maps we have to specify the key type as well as the value type.
 
-In macros that operate on maps, the value (k) is the map **key**, and we can use that to access values in the map. This will return false, since UA 1500 is delayed:
+In macros that operate on maps, the value (k) is the map **key**, and we can use that to access values in the map. This will return true, since UA1500 is on time:
 
 ```go
 flights["UA1500"] == "On Time" 
@@ -590,7 +590,7 @@ We have already seen one macro (`exists`), but here are some of the macros CEL p
 
 - ``has`` checks if a field exists
 - ``all`` will be true if all elements meet the predicate
-- ``exists_one`` will be true if only 1 element matches the
+- ``exists_one`` will be true if only 1 element matches the predicate
 - ``filter`` can be applied to a list and returns a new list with the matching elements
 
 Macros can be chained, as in this example from the [CEL Codelabs tutorial](https://codelabs.developers.google.com/codelabs/cel-go#10):
@@ -1002,9 +1002,9 @@ goTime := pbtime.AsTime()
 
 Convert from a string to a timestamp:
 
-``proto
+```proto
 timestamp("1972-01-01T10:00:20.021-05:00")
-``
+```
 
 ## Summary of duration operations in Go
 
@@ -1028,9 +1028,9 @@ goDur := protodur.AsDuration()
 
 ## Duration conversion in a CEL rule
 
-``proto
+```proto
 duration("2400h")
-``
+```
 
 ## Parts of time
 
@@ -1055,7 +1055,7 @@ s.enrollment_date.getDayOfWeek() == 5 // Friday
 // Output: true 
 ```
 
-``getDayOfWeek`` is zero-based (Sunday == 0).
+```getDayOfWeek``` is zero-based (Sunday == 0).
 
 CEL also lets us check the day of the week in whatever timezone we want:
 
@@ -1071,7 +1071,7 @@ data := map[string]interface{}{
 }
 ```
 
-... it is now Saturday is India:
+... it is now Saturday in India:
 
 ```proto
 s.enrollment_date.getDayOfWeek("Asia/Kolkata") == 6 // Saturday
@@ -1110,7 +1110,7 @@ rule := indigo.Rule{
 }
 ```
 
-Here, the result of the expression is **not** a boolean, but rather a Go protocol buffer struct of with the type ``StudentSummary``.
+Here, the result of the expression is **not** a boolean, but rather a Go protocol buffer struct with the type ``StudentSummary``.
 
 Two important things to point out:
 
@@ -1346,8 +1346,8 @@ delete(parent.Rules, "child-id-to-delete")
 and
 
 ```go
-myNewRule.Compile(myCompiler)
-parent.Rules["my-new-rule"] = myNewRule
+engine.Compile(&myNewRule)
+parent.Rules["my-new-rule"] = &myNewRule
 ```
 
 You must **not** modify a rule:
@@ -1517,7 +1517,7 @@ fmt.Println(results)
 
 As we can see, the structure of results mirrors the structure of the rules that were evaluated: there's a root rule with 3 child values.
 
-The ``indigo.Results`` struct looks like this:
+The ``indigo.Result`` struct looks like this:
 
 ```go
 // Result of evaluating a rule.
@@ -1591,7 +1591,7 @@ From the ``indigo.EvalOptions`` struct documentation:
 // TrueIfAny makes a parent rule Pass = true if any of its child rules are true.
 // The default behavior is that a rule is only true if all of its child rules are true, and
 // the parent rule itself is true.
-// Setting TrueIfAny changes this behvior so that the parent rule is true if at least one of its child rules
+// Setting TrueIfAny changes this behavior so that the parent rule is true if at least one of its child rules
 // are true, and the parent rule itself is true.
 TrueIfAny bool `json:"true_if_any"`
 ```
@@ -1654,7 +1654,7 @@ This option prevents the evaluation of child rules if the parent's expression is
 
 > The sample code for this section is in [Example_stopIfParentNegative()](cel/example_organization_test.go)
 
-In this example, we're going to evaluate 3 rules, (honors, at_risk and rookie), but we only want to do that for Accounting majors. Imagine that the university as 30,000 students and 10 of them are accounting majors. Obviously, evaluating all 3 rules for every student would be silly.
+In this example, we're going to evaluate 3 rules, (honors, at_risk and rookie), but we only want to do that for Accounting majors. Imagine that the university has 30,000 students and 10 of them are accounting majors. Obviously, evaluating all 3 rules for every student would be silly.
 
 Instead we make a parent rule, called ``accounting``, where we put the major requirement. We then put the 3 rules as child rules of the accounting rule.
 
@@ -1791,7 +1791,7 @@ Example uses of the ``StopFirstNegativeChild`` option:
 - An API server needs to quickly decide to allow or disallow an action (child rules with all required conditions)
 - A self-driving car should apply emergency braking immediately if one of the emergency braking conditions is met
 
-Any negative rule can be turned into a positive rule, so the ``StopFirstPositiveChild`` optiob has similar use case examples.
+Any negative rule can be turned into a positive rule, so the ``StopFirstPositiveChild`` option has similar use case examples.
 
 ## SortFunc
 
@@ -1835,7 +1835,7 @@ In this section we'll use our understanding of rule organization and evaluation 
 
 In this example, we are going to monitor system metrics such as CPU and memory and issue alerts when metrics exceed certain thresholds.
 
-The best way to do this is to have a rule for each alarm, and to set the evaluation option ```FailAction = DiscardFailures``, so that only``true`` rules are returned.
+The best way to do this is to have a rule for each alarm, and to set the evaluation option ``FailAction = DiscardFailures``, so that only ``true`` rules are returned.
 
 > The sample code for this section is in [Example_alarms()](cel/example_test.go)
 
@@ -1939,7 +1939,7 @@ graph TD;
 
 alarm_check[alarm_check<br>DiscardFailures] --> cpu_alarm;
 alarm_check --> disk_alarm;
-alarm_check --> memory_alarm[memory_alarm<br>DiscardFailures<br>TrueIfAny];
+alarm_check --> memory_alarm[memory_alarm<br>KeepFailures<br>TrueIfAny];
 memory_alarm --> memory_utilization_alarm;
 memory_alarm --> memory_remaining_alarm;
 ```
@@ -2162,7 +2162,7 @@ Rather than directly update the rule in the vault, writers submit lists of mutat
 
 Vaults support add, update, delete and move mutations.
 
-The Vault guarantees that the active rule in the vault is only updated if all mutation succeed, and that readers never see an inconsistent rule state during updates.
+The Vault guarantees that the active rule in the vault is only updated if all mutations succeed, and that readers never see an inconsistent rule state during updates.
 
 ## Caveats
 
@@ -2172,7 +2172,7 @@ To use a vault your rules have to have globally unique IDs.
 
 Mutations do cause copies of rules to be made, but only the minimum number possible. This includes the parent of the rule being updated and any ancestors up to and including the root node. Child nodes are not copied.
 
-Go's garbage collector will "clean up" versions of the Vault rule that are not needed anymore. If you hold on to the rule after using it for evaluation, you will extend the time the memory is held. This might be a consideration of you are running many long-running batch processes that evaluate rules while at the same time receiving many and frequent rule updates.
+Go's garbage collector will "clean up" versions of the Vault rule that are not needed anymore. If you hold on to the rule after using it for evaluation, you will extend the time the memory is held. This might be a consideration if you are running many long-running batch processes that evaluate rules while at the same time receiving many and frequent rule updates.
 
 ## Using a Vault
 
