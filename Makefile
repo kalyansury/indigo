@@ -1,8 +1,10 @@
 test:
-	go test -count=1 -race ./... 
+	go test -count=1 ./...
+
+race_test:
+	go test -count=1 -race ./...
 
 full_test: race_test test benchmark
-
 
 benchmark:
 	@COMMIT_HASH=$$(git rev-parse --short HEAD); \
