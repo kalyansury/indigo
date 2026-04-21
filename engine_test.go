@@ -5,10 +5,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"reflect"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -17,9 +20,8 @@ import (
 	"github.com/ezachrisen/indigo/cel"
 )
 
-// Test the scenario where the rule has childs and exists (or not) childs with true as their results
+// Test the scenario where the rule has children and exists (or not) children with true as their results
 func TestTrueIfAnyBehavior(t *testing.T) {
-
 	engine := indigo.NewEngine(cel.NewEvaluator())
 	data := map[string]any{}
 	ctx := context.Background()
@@ -83,15 +85,12 @@ func TestTrueIfAnyBehavior(t *testing.T) {
 		check(expect, false) // if the L2 is false, then we need to check from leaf until the root
 		check(expect, true)  // otherwise, the L2 will make the root to be true
 	}
-
 }
 
 // Test that all rules are evaluated and yield the correct result in the default configuration
 func TestEvaluationTraversalDefault(t *testing.T) {
-
 	e := indigo.NewEngine(newMockEvaluator())
 	r := makeRule()
-
 	expectedResults := map[string]bool{
 		"rule1": true,
 		"D":     true,
@@ -120,6 +119,9 @@ func TestEvaluationTraversalDefault(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+	if g, w := result.EvaluationCount, len(expectedResults); w != g {
+		t.Errorf("wanted %d, got %d", w, g)
+	}
 	//	fmt.Println(m.rulesTested)
 	//	fmt.Println(result)
 	if err := match(flattenResultsExprResult(result), expectedResults); err != nil {
@@ -130,7 +132,6 @@ func TestEvaluationTraversalDefault(t *testing.T) {
 // Ensure that rules are evaluated in the correct order when
 // alpha sort is applied
 func TestEvaluationTraversalAlphaSort(t *testing.T) {
-
 	e := indigo.NewEngine(newMockEvaluator())
 	r := makeRule()
 
@@ -211,7 +212,9 @@ func TestEvaluationTraversalAlphaSort(t *testing.T) {
 	if !reflect.DeepEqual(expectedOrder, flattenResultsEvaluated(result)) {
 		t.Error("not all rules were evaluated")
 	}
-
+	if g, w := result.EvaluationCount, len(expectedResults); w != g {
+		t.Errorf("wanted %d, got %d", w, g)
+	}
 }
 
 // Test that the engine checks for nil data and rule
@@ -247,14 +250,12 @@ func TestNilDataOrRule(t *testing.T) {
 	if !strings.Contains(err.Error(), "rule is nil") {
 		t.Error("error should contain 'rule is nil'")
 	}
-
 }
 
 // Test the pass/fail of the expression evaluation with various combinations
 // of evaluation options
 // This tests the result.ExpressionPass field.
 func TestEvalOptionsExpressionPassFail(t *testing.T) {
-
 	e := indigo.NewEngine(newMockEvaluator())
 	d := map[string]any{"a": "a"} // dummy data, not important
 	w := map[string]bool{         // the wanted expression evaluation results with no options in effect
@@ -277,8 +278,9 @@ func TestEvalOptionsExpressionPassFail(t *testing.T) {
 	}
 
 	cases := map[string]struct {
-		prep func(*indigo.Rule)     // a function called to prep the rule before compilation and evaluation
-		want func() map[string]bool // a function returning an edited copy of w after options are applied
+		prep          func(*indigo.Rule)     // a function called to prep the rule before compilation and evaluation
+		want          func() map[string]bool // a function returning an edited copy of w after options are applied
+		wantEvalCount int                    // the number of rules that should have been evaluated
 	}{
 		"Default Options": {
 			prep: func(r *indigo.Rule) {
@@ -286,6 +288,7 @@ func TestEvalOptionsExpressionPassFail(t *testing.T) {
 			want: func() map[string]bool {
 				return copyMap(w)
 			},
+			wantEvalCount: len(w),
 		},
 
 		"StopIfParentNegative": {
@@ -295,6 +298,7 @@ func TestEvalOptionsExpressionPassFail(t *testing.T) {
 			want: func() map[string]bool {
 				return deleteKeys(copyMap(w), "b1", "b2", "b3", "b4", "b4-1", "b4-2")
 			},
+			wantEvalCount: 10,
 		},
 		"DiscardPass": {
 			prep: func(r *indigo.Rule) {
@@ -303,6 +307,7 @@ func TestEvalOptionsExpressionPassFail(t *testing.T) {
 			want: func() map[string]bool {
 				return deleteKeys(copyMap(w), "b4-1")
 			},
+			wantEvalCount: len(w),
 		},
 		"DiscardFailures": {
 			prep: func(r *indigo.Rule) {
@@ -311,6 +316,7 @@ func TestEvalOptionsExpressionPassFail(t *testing.T) {
 			want: func() map[string]bool {
 				return deleteKeys(copyMap(w), "b2", "b4", "b4-1", "b4-2") // b4-1 is elim. because b4 is
 			},
+			wantEvalCount: len(w),
 		},
 		"DiscardPass & DiscardFailures": {
 			prep: func(r *indigo.Rule) {
@@ -320,6 +326,7 @@ func TestEvalOptionsExpressionPassFail(t *testing.T) {
 			want: func() map[string]bool {
 				return deleteKeys(copyMap(w), "b1", "b2", "b3", "b4", "b4-1", "b4-2")
 			},
+			wantEvalCount: len(w),
 		},
 		"DiscardPass & DiscardFailures on Root": {
 			prep: func(r *indigo.Rule) {
@@ -329,8 +336,9 @@ func TestEvalOptionsExpressionPassFail(t *testing.T) {
 			want: func() map[string]bool {
 				return map[string]bool{"rule1": true}
 			},
+			wantEvalCount: len(w),
 		},
-		"StopFirstPositiveChildX": {
+		"StopFirstPositiveChild": {
 			prep: func(r *indigo.Rule) {
 				r.Rules["B"].EvalOptions.StopFirstPositiveChild = true
 				r.Rules["B"].EvalOptions.SortFunc = indigo.SortRulesAlpha
@@ -338,6 +346,7 @@ func TestEvalOptionsExpressionPassFail(t *testing.T) {
 			want: func() map[string]bool {
 				return deleteKeys(copyMap(w), "b2", "b3", "b4", "b4-1", "b4-2")
 			},
+			wantEvalCount: 11,
 		},
 		"StopFirstNegativeChild": {
 			prep: func(r *indigo.Rule) {
@@ -347,6 +356,7 @@ func TestEvalOptionsExpressionPassFail(t *testing.T) {
 			want: func() map[string]bool {
 				return deleteKeys(copyMap(w), "b3", "b4", "b4-1", "b4-2")
 			},
+			wantEvalCount: 12,
 		},
 		"StopFirstNegativeChild & StopFirstPositiveChild": {
 			prep: func(r *indigo.Rule) {
@@ -357,6 +367,7 @@ func TestEvalOptionsExpressionPassFail(t *testing.T) {
 			want: func() map[string]bool {
 				return deleteKeys(copyMap(w), "b2", "b3", "b4", "b4-1", "b4-2")
 			},
+			wantEvalCount: 11,
 		},
 		"Multiple Options": {
 			prep: func(r *indigo.Rule) {
@@ -367,6 +378,7 @@ func TestEvalOptionsExpressionPassFail(t *testing.T) {
 			want: func() map[string]bool {
 				return deleteKeys(copyMap(w), "b1", "b3", "b4-1", "e1", "e2", "e3")
 			},
+			wantEvalCount: 13,
 		},
 		"Delete Rule": {
 			prep: func(r *indigo.Rule) {
@@ -375,6 +387,7 @@ func TestEvalOptionsExpressionPassFail(t *testing.T) {
 			want: func() map[string]bool {
 				return deleteKeys(copyMap(w), "b1")
 			},
+			wantEvalCount: len(w) - 1,
 		},
 		"Add Rule": {
 			prep: func(r *indigo.Rule) {
@@ -389,6 +402,7 @@ func TestEvalOptionsExpressionPassFail(t *testing.T) {
 				w["x"] = true
 				return w
 			},
+			wantEvalCount: len(w) + 1,
 		},
 		"Update Rule": { // TODO and forget to compile; stale program?
 			prep: func(r *indigo.Rule) {
@@ -399,15 +413,15 @@ func TestEvalOptionsExpressionPassFail(t *testing.T) {
 				w["b4"] = true
 				return w
 			},
+			wantEvalCount: len(w),
 		},
 	}
 
 	for k, c := range cases {
-		c := c
 		t.Run(k, func(t *testing.T) {
 			r := makeRule()
 			c.prep(r)
-			err := e.Compile(r)
+			err := e.Compile(r, indigo.CollectDiagnostics(true))
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
@@ -416,20 +430,41 @@ func TestEvalOptionsExpressionPassFail(t *testing.T) {
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
-			//			fmt.Println("got: ", flattenResultsExprResult(u))
-			err = match(flattenResultsExprResult(u), c.want())
+			f := flattenResultsExprResult(u)
+			err = match(f, c.want())
 			if err != nil {
 				t.Errorf("%v", err)
 			}
+
+			if g, w := u.EvaluationCount, c.wantEvalCount; w != g {
+				t.Logf("\n%s\n", r)
+				t.Logf("Result count: %d\n", len(f))
+				for _, id := range slices.Sorted(maps.Keys(f)) {
+					t.Logf("%s\n", id)
+				}
+				t.Logf("\n")
+				ev := ruleIDsEvaluated(u)
+				t.Logf("Evaluated:(doesn't count root) %d (%s)", len(ev), strings.Join(ev, ","))
+				t.Errorf("wanted %d, got %d", w, g)
+			}
 		})
 	}
+}
+
+func ruleIDsEvaluated(u *indigo.Result) (ids []string) {
+	for _, uu := range u.RulesEvaluated {
+		ids = append(ids, uu.ID)
+	}
+	for _, c := range u.Results {
+		ids = append(ids, ruleIDsEvaluated(c)...)
+	}
+	return
 }
 
 // Test the pass/fail of the rule  evaluation with various combinations
 // of evaluation options
 // This tests the result.Pass field
 func TestEvalOptionsRulePassFail(t *testing.T) {
-
 	e := indigo.NewEngine(newMockEvaluator())
 	d := map[string]any{"a": "a"} // dummy data, not important
 	// the wanted rule evaluation results with no options in effect
@@ -653,7 +688,6 @@ func TestEvalOptionsRulePassFail(t *testing.T) {
 			}
 
 			u, err := e.Eval(context.Background(), r, d, indigo.ReturnDiagnostics(true))
-
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
@@ -668,7 +702,6 @@ func TestEvalOptionsRulePassFail(t *testing.T) {
 }
 
 func TestEvalTrueIfAny(t *testing.T) {
-
 	e := indigo.NewEngine(newMockEvaluator())
 	d := map[string]any{"a": "a"} // dummy data, not important
 	// the wanted rule evaluation results with no options in effect
@@ -799,7 +832,6 @@ func TestEvalTrueIfAny(t *testing.T) {
 				r.Rules["B"].EvalOptions.SortFunc = indigo.SortRulesAlpha
 
 				r.Rules["B"].Rules["b1"].Expr = "false"
-
 			},
 			want: func() map[string]bool {
 				m := deleteKeys(copyMap(w), "b2", "b3", "b4", "b4-1", "b4-2")
@@ -836,7 +868,6 @@ func TestEvalTrueIfAny(t *testing.T) {
 }
 
 func TestDiagnosticOptions(t *testing.T) {
-
 	m := newMockEvaluator()
 	e := indigo.NewEngine(m)
 	d := map[string]any{"a": "a"} // dummy data, not important
@@ -884,7 +915,7 @@ func TestDiagnosticOptions(t *testing.T) {
 			t.Fatalf("unexpected error: %v", err)
 		}
 		// fmt.Println(k)
-		//fmt.Println(indigo.DiagnosticsReport(u, nil))
+		// fmt.Println(indigo.DiagnosticsReport(u, nil))
 		switch c.wantDiagnostics {
 		case true:
 			err = allNotEmpty(flattenResultsDiagnostics(u))
@@ -902,7 +933,7 @@ func TestDiagnosticOptions(t *testing.T) {
 			indigo.DiagnosticsReport(nil, nil)
 
 		default:
-			//fmt.Println(u)
+			// fmt.Println(u)
 			err = anyNotEmpty(flattenResultsDiagnostics(u))
 			if err != nil {
 				t.Errorf("In case '%s', wanted no diagnostics, got: %v", k, err)
@@ -914,7 +945,6 @@ func TestDiagnosticOptions(t *testing.T) {
 
 // Test compiling some rules with compile-time collection of diagnostics and some without
 func TestPartialDiagnostics(t *testing.T) {
-
 	m := newMockEvaluator()
 	e := indigo.NewEngine(m)
 	// Set the mock engine to require that diagnostics must be turned on at compile time,
@@ -960,7 +990,6 @@ func TestPartialDiagnostics(t *testing.T) {
 }
 
 func TestJSON(t *testing.T) {
-
 	//	e := indigo.NewEngine(newMockEvaluator())
 	r := makeRule()
 
@@ -969,13 +998,11 @@ func TestJSON(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	//	fmt.Println(string(b))
-
 }
 
 // Test options set at the time eval is called
 // (options apply to the entire tree)
 func TestGlobalEvalOptions(t *testing.T) {
-
 	cases := []struct {
 		prep func(*indigo.Rule)     // Edits to apply to the rule before evaluating
 		opts []indigo.EvalOption    // Options to pass to evaluate
@@ -1068,7 +1095,6 @@ func TestGlobalEvalOptions(t *testing.T) {
 				if x, ok := r.Results["B"].Results["b3"]; !ok {
 					t.Errorf("expected b3, got %s", x.Rule.ID)
 				}
-
 			},
 		},
 
@@ -1232,7 +1258,6 @@ func TestGlobalEvalOptions(t *testing.T) {
 
 // Test that Indigo stops evaluating rules after a timeout value has been reached
 func TestTimeout(t *testing.T) {
-
 	r := makeRule()
 	m := newMockEvaluator()
 	m.evalDelay = 10 * time.Millisecond
@@ -1269,11 +1294,12 @@ func TestSortFuncAndParallelIncompatible(t *testing.T) {
 	if !strings.Contains(err.Error(), expectedError) {
 		t.Errorf("expected error to contain '%s', got: %v", expectedError, err)
 	}
-
 }
 
-var activeEvals int32    // Counter for active mock evaluations
-var maxActiveEvals int32 // Maximum number of active evaluations
+var (
+	activeEvals    int32 // Counter for active mock evaluations
+	maxActiveEvals int32 // Maximum number of active evaluations
+)
 
 type trackingMockEvaluator struct {
 	evalDelay   time.Duration
@@ -1287,9 +1313,9 @@ func (m *trackingMockEvaluator) Compile(expr string, s indigo.Schema, resultType
 }
 
 func (m *trackingMockEvaluator) Evaluate(data map[string]any, expr string, s indigo.Schema, self any, evalData any, resultType indigo.Type, returnDiagnostics bool) (any, *indigo.Diagnostics, error) {
-	atomic.AddInt32(&activeEvals, 1)
-	if activeEvals > maxActiveEvals {
-		maxActiveEvals = activeEvals
+	active := atomic.AddInt32(&activeEvals, 1)
+	if active > atomic.LoadInt32(&maxActiveEvals) {
+		atomic.StoreInt32(&maxActiveEvals, active)
 	}
 	defer atomic.AddInt32(&activeEvals, -1)
 
@@ -1352,7 +1378,7 @@ func TestParallelEvalLeakOnEarlyError(t *testing.T) {
 	if !strings.Contains(evalErr.Error(), "mock error for rule ruleError") {
 		t.Errorf("expected error to contain 'mock error for rule ruleError', got: %v", evalErr)
 	}
-	//fmt.Println("Num goroutines: ", runtime.NumGoroutine())
+	// fmt.Println("Num goroutines: ", runtime.NumGoroutine())
 	// Give some time for other goroutines to potentially get stuck or finish
 	time.Sleep(mockEval.evalDelay * 3)
 
@@ -1369,7 +1395,6 @@ func TestParallelEvalLeakOnEarlyError(t *testing.T) {
 
 	// fmt.Println("Num goroutines: ", runtime.NumGoroutine())
 	// fmt.Println("Max active evals: ", maxActiveEvals)
-
 }
 
 func TestParallelEvalLeakOnContextCancel(t *testing.T) {
@@ -1449,4 +1474,177 @@ func TestParallelEvalPanicHandling(t *testing.T) {
 	if active := atomic.LoadInt32(&activeEvals); active != 0 {
 		t.Errorf("Expected no active evaluations after panic, got %d", active)
 	}
+}
+
+// Test that EvalOptions passed to Eval can override the parallel evaluation options
+// set on a rule, forcing sequential evaluation instead of parallel evaluation
+func TestParallelEvalOptionOverride(t *testing.T) {
+	atomic.StoreInt32(&activeEvals, 0)
+	atomic.StoreInt32(&maxActiveEvals, 0)
+
+	mockEval := &trackingMockEvaluator{
+		evalDelay: 100 * time.Millisecond,
+	}
+	engine := indigo.NewEngine(mockEval)
+
+	// Create a rule that wants to evaluate its children in parallel
+	rootRule := &indigo.Rule{
+		ID: "root",
+		EvalOptions: indigo.EvalOptions{
+			Parallel: indigo.ParallelConfig{
+				BatchSize:   2,
+				MaxParallel: 3,
+			},
+		},
+		Rules: map[string]*indigo.Rule{
+			"rule1": {ID: "rule1", Expr: "true"},
+			"rule2": {ID: "rule2", Expr: "true"},
+			"rule3": {ID: "rule3", Expr: "true"},
+			"rule4": {ID: "rule4", Expr: "true"},
+			"rule5": {ID: "rule5", Expr: "true"},
+		},
+	}
+
+	err := engine.Compile(rootRule)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// Track initial goroutine count
+	initialGoroutines := runtime.NumGoroutine()
+
+	// Override the rule's parallel settings with sequential evaluation
+	// (BatchSize=0 and MaxParallel=0 forces sequential evaluation)
+	_, evalErr := engine.Eval(ctx, rootRule, map[string]any{}, indigo.Parallel(0, 0))
+	if evalErr != nil {
+		t.Fatalf("unexpected error: %v", evalErr)
+	}
+
+	// Verify that the number of goroutines did not increase significantly
+	// (allowing for some variance due to Go runtime)
+	finalGoroutines := runtime.NumGoroutine()
+	if finalGoroutines > initialGoroutines+2 {
+		t.Errorf("Expected sequential evaluation with minimal goroutine increase, initial: %d, final: %d",
+			initialGoroutines, finalGoroutines)
+	}
+
+	// Verify that the maximum number of concurrent evaluations was limited
+	// In sequential mode, we should never have more than 1 active evaluation at a time
+	if maxActiveEvals > 1 {
+		t.Errorf("Expected max 1 active evaluation in sequential mode, got %d", maxActiveEvals)
+	}
+}
+
+// TestParallelEvalContextCancellation tests that parallel evaluation properly handles context cancellation
+// This test specifically targets a deadlock where worker goroutines block trying to send on channels
+// when the main evaluation goroutine has already exited due to context cancellation
+func TestParallelEvalContextCancellation(t *testing.T) {
+	schema := &indigo.Schema{
+		ID: "test",
+		Elements: []indigo.DataElement{
+			{Name: "x", Type: indigo.Int{}},
+		},
+	}
+
+	engine := indigo.NewEngine(cel.NewEvaluator(cel.FixedSchema(schema)))
+
+	// Create a root rule with many child rules to ensure parallel is triggered
+	root := indigo.NewRule("root", "true")
+	for i := range 100 {
+		child := indigo.NewRule(fmt.Sprintf("child_%d", i), "x > 0")
+		root.Add(child)
+	}
+
+	err := engine.Compile(root)
+	if err != nil {
+		t.Fatalf("compile failed: %v", err)
+	}
+
+	// Create a context that will be cancelled quickly
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+
+	var evalCount atomic.Int64
+	var wg sync.WaitGroup
+
+	// Start many parallel evaluations that will be cancelled
+	for i := range 10 {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			_, err := engine.Eval(ctx, root, map[string]any{"x": 42}, indigo.Parallel(10, 8)) // High parallelism
+			evalCount.Add(1)
+			if err != nil && err != context.DeadlineExceeded {
+				t.Logf("Eval %d error: %v", id, err)
+			}
+		}(i)
+	}
+
+	// Wait for all evals to complete
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+
+	// If this test deadlocks, it will timeout
+	select {
+	case <-done:
+		t.Logf("Test passed. Completed %d evaluations", evalCount.Load())
+	case <-time.After(5 * time.Second):
+		t.Fatalf("Test timed out - deadlock in parallel eval context handling. Completed %d evals", evalCount.Load())
+	}
+}
+
+// TestParallelEvalCancellationSendsOnClosedChannels tests worker goroutines sending on channels
+func TestParallelEvalWorkerChannelHandling(t *testing.T) {
+	schema := &indigo.Schema{
+		ID: "test",
+		Elements: []indigo.DataElement{
+			{Name: "x", Type: indigo.Int{}},
+		},
+	}
+
+	engine := indigo.NewEngine(cel.NewEvaluator(cel.FixedSchema(schema)))
+
+	root := indigo.NewRule("root", "true")
+	for i := range 200 {
+		child := indigo.NewRule(fmt.Sprintf("child_%d", i), "x > 0")
+		root.Add(child)
+	}
+
+	err := engine.Compile(root)
+	if err != nil {
+		t.Fatalf("compile failed: %v", err)
+	}
+
+	// Create context that times out mid-evaluation
+	ctx, cancel := context.WithCancel(context.Background())
+
+	var evalDone atomic.Bool
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		cancel()
+	}()
+
+	// Start evaluation with high parallelism
+	_, err = engine.Eval(ctx, root, map[string]any{"x": 42}, indigo.Parallel(20, 16)) // Very high parallelism
+
+	evalDone.Store(true)
+
+	if err != context.Canceled && err != nil {
+		t.Logf("Got error: %v", err)
+	}
+
+	// Give worker goroutines time to try to send on channels
+	time.Sleep(100 * time.Millisecond)
+
+	if !evalDone.Load() {
+		t.Fatal("Evaluation did not complete")
+	}
+
+	t.Log("Test passed - no deadlock")
 }

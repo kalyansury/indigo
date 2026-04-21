@@ -48,8 +48,8 @@ func NewEngine(e ExpressionCompilerEvaluator) *DefaultEngine {
 // evaluating. Options passed to this function will override the options set on the rules.
 // Eval uses the Evaluator provided to the engine to perform the expression evaluation.
 func (e *DefaultEngine) Eval(ctx context.Context, r *Rule,
-	d map[string]any, opts ...EvalOption) (*Result, error) {
-
+	d map[string]any, opts ...EvalOption,
+) (*Result, error) {
 	if err := validateEvalArguments(r, e, d); err != nil {
 		return nil, err
 	}
@@ -58,12 +58,11 @@ func (e *DefaultEngine) Eval(ctx context.Context, r *Rule,
 	applyEvaluatorOptions(&o, opts...)
 	d = setSelfKey(r, d, o)
 
-	// Check for incompatible options: sortFunc and parallel cannot be used together
-	if o.SortFunc != nil && (o.Parallel.BatchSize > 1 || o.Parallel.MaxParallel > 1) {
+	// Check for incompatible options: user-provided sortFunc and parallel cannot be used together
+	// However, internal sort functions (like those set by sharding) are compatible with parallel
+	if o.SortFunc != nil && !o.sortFuncIsInternal && (o.Parallel.BatchSize > 1 || o.Parallel.MaxParallel > 1) {
 		return nil, fmt.Errorf("rule %s: sortFunc and parallel options are incompatible - parallel processing cannot guarantee evaluation order", r.ID)
 	}
-
-	//		setSelfKey(r, d)
 
 	// Evaluate the rule's expression using the engine's ExpressionEvaluator
 	val, diagnostics, err := e.e.Evaluate(d, r.Expr, r.Schema, r.Self, r.Program,
@@ -73,11 +72,12 @@ func (e *DefaultEngine) Eval(ctx context.Context, r *Rule,
 	}
 
 	u := &Result{
-		Rule:           r,
-		ExpressionPass: true, // default boolean result
-		Value:          val,
-		Diagnostics:    diagnostics,
-		EvalOptions:    o,
+		Rule:            r,
+		ExpressionPass:  true, // default boolean result
+		Value:           val,
+		Diagnostics:     diagnostics,
+		EvalOptions:     o,
+		EvaluationCount: 1,
 	}
 
 	// If the evaluation returned a boolean, set the Result's value,
@@ -101,7 +101,8 @@ func (e *DefaultEngine) Eval(ctx context.Context, r *Rule,
 		return nil, err
 	}
 	u.Results = eu.results
-	u.RulesEvaluated = eu.evaluated
+	u.RulesEvaluated = append(u.RulesEvaluated, eu.evaluated...)
+	u.EvaluationCount = u.EvaluationCount + eu.evaluatedCount
 
 	// Based on the results of the child rules, determine the result of the parent rule
 	switch r.EvalOptions.TrueIfAny {
@@ -187,6 +188,7 @@ func (e *DefaultEngine) evalChildren(ctx context.Context, rules []*Rule, d map[s
 			r.evaluated = append(r.evaluated, res.evaluated...)
 			r.failCount = r.failCount + res.failCount
 			r.passCount = r.passCount + res.passCount
+			r.evaluatedCount = r.evaluatedCount + res.evaluatedCount
 			maps.Copy(r.results, res.results)
 		case err := <-errCh:
 			// A worker encountered an error - stop processing and return it
@@ -196,26 +198,21 @@ func (e *DefaultEngine) evalChildren(ctx context.Context, rules []*Rule, d map[s
 
 	// All chunks processed successfully
 	return
-
 }
 
 // evalResult is a convenience type to let us pass multiple values on a channel
 type evalResult struct {
-	passCount int
-	failCount int
-	results   map[string]*Result
-	evaluated []*Rule
+	passCount      int
+	failCount      int
+	results        map[string]*Result
+	evaluated      []*Rule
+	evaluatedCount int
 }
 
 // makeChunks divides a range [start, len) into batches of the specified size.
 // It returns a slice of chunks, where each chunk represents a contiguous range
 // with start and end positions. The last chunk may be smaller than batchSize
 // if the remaining range is not evenly divisible.
-//
-// This function uses recursion to build the chunk list, which is an interesting
-// approach but not necessarily the most efficient for large datasets. An iterative
-// approach might be more suitable for production code, but recursion demonstrates
-// functional programming concepts in Go.
 //
 // Parameters:
 //   - start: the starting position of the range (inclusive)
@@ -245,7 +242,6 @@ func makeChunks(start, len, batchSize int) (chunks []chunk) {
 	chunks = append(chunks, c)
 
 	// Recursively create chunks for the remaining range
-	// Note: This is tail recursion - the recursive call is the last operation
 	chunks = append(chunks, makeChunks(c.end, len, batchSize)...)
 	return
 }
@@ -373,12 +369,8 @@ type chunk struct {
 }
 
 func (e *DefaultEngine) evalRuleSlice(ctx context.Context, rules []*Rule, d map[string]any,
-	o EvalOptions, opts ...EvalOption) (r evalResult, err error) {
-	// id := UniqueID()
-	// fmt.Println("Starting ", id)
-	// defer func() {
-	// 	fmt.Println("Finished ", id)
-	// }()
+	o EvalOptions, opts ...EvalOption,
+) (r evalResult, err error) {
 	r.results = make(map[string]*Result, len(rules))
 
 	for _, cr := range rules {
@@ -394,6 +386,7 @@ func (e *DefaultEngine) evalRuleSlice(ctx context.Context, rules []*Rule, d map[
 			if err != nil {
 				return r, err
 			}
+			r.evaluatedCount = r.evaluatedCount + result.EvaluationCount
 
 			// If the child rule failed, either due to its own expression evaluation
 			// or its children, we have encountered a failure, and we'll count it
@@ -434,7 +427,6 @@ func (e *DefaultEngine) evalRuleSlice(ctx context.Context, rules []*Rule, d map[
 		}
 	}
 	return
-
 }
 
 // Compile uses the Evaluator's compile method to check the rule and its children,
@@ -457,7 +449,6 @@ func (e *DefaultEngine) Compile(r *Rule, opts ...CompilationOption) error {
 	if err != nil {
 		return fmt.Errorf("rule %s: %w", r.ID, err)
 	}
-
 	if !o.dryRun {
 		r.Program = prg
 	}
@@ -468,9 +459,7 @@ func (e *DefaultEngine) Compile(r *Rule, opts ...CompilationOption) error {
 			return err
 		}
 	}
-
 	r.sortedRules = r.sortChildRules(r.EvalOptions.SortFunc, true)
-
 	return nil
 }
 
@@ -508,9 +497,18 @@ func applyCompilerOptions(o *compileOptions, opts ...CompilationOption) {
 	}
 }
 
+// ParallelConfig enables parallel evaluation of child rules with batching.
+// BatchSize controls how many rules are evaluated concurrently in each batch.
+// MaxParallel limits the maximum number of goroutines used for evaluation.
+// If BatchSize is 0, all rules are processed in a single batch.
+// If MaxParallel is 0, no limit is imposed on parallel goroutines.
+type ParallelConfig struct {
+	BatchSize   int `json:"batch_size"`
+	MaxParallel int `json:"max_parallel"`
+}
+
 // EvalOptions determines how the engine should treat the results of evaluating a rule.
 type EvalOptions struct {
-
 	// TrueIfAny makes a parent rule Pass = true if any of its child rules are true.
 	// The default behavior is that a rule is only true if all of its child rules are true, and
 	// the parent rule itself is true.
@@ -564,15 +562,13 @@ type EvalOptions struct {
 	// and was overridden by a global eval option,
 	overrideSort bool
 
-	// Parallel enables parallel evaluation of child rules with batching.
-	// BatchSize controls how many rules are evaluated concurrently in each batch.
-	// MaxParallel limits the maximum number of goroutines used for evaluation.
-	// If BatchSize is 0, all rules are processed in a single batch.
-	// If MaxParallel is 0, no limit is imposed on parallel goroutines.
-	Parallel struct {
-		BatchSize   int `json:"batch_size"`
-		MaxParallel int `json:"max_parallel"`
-	} `json:"parallel"`
+	// sortFuncIsInternal is set to true if the SortFunc was set by internal
+	// operations like sharding, rather than by user code. Internal sort functions
+	// are compatible with parallel evaluation, while user-provided ones are not.
+	sortFuncIsInternal bool
+
+	// Parallel controls parallel evaluation of child rules with batching.
+	Parallel ParallelConfig `json:"parallel"`
 }
 
 // FailAction is used to tell Indigo what to do with the results of
@@ -696,7 +692,6 @@ func setSelfKey(r *Rule, d map[string]any, o EvalOptions) map[string]any {
 	default:
 		return setSelfKeySequentialMode(r, d)
 	}
-
 }
 
 // setSelfKeyParallelMode handles self key management for parallel rule evaluation.
@@ -753,7 +748,6 @@ func setSelfKeySequentialMode(r *Rule, d map[string]any) map[string]any {
 
 // validateEvalArguments checks the input parameters to engine.Eval
 func validateEvalArguments(r *Rule, e *DefaultEngine, d map[string]any) error {
-
 	switch {
 	case r == nil:
 		return errors.New("rule is nil")
@@ -772,19 +766,16 @@ func validateEvalArguments(r *Rule, e *DefaultEngine, d map[string]any) error {
 // This is the result type passed to the evaluator. The evaluator may use it to
 // inspect / validate the result it generates.
 func defaultResultType(r *Rule) Type {
-
 	switch r.ResultType {
 	case nil:
 		return Bool{}
 	default:
 		return r.ResultType
 	}
-
 }
 
 // validateEvalArguments checks the input parameters to engine.Eval
 func validateCompileArguments(r *Rule, e *DefaultEngine) error {
-
 	switch {
 	case r == nil:
 		return errors.New("rule is nil")
