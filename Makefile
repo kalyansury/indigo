@@ -1,8 +1,14 @@
+.PHONY: test race_test full_test benchmark statsversion
+
+# Regular unit tests (no race detector)
 test:
-	go test -count=1 -race ./... 
+	go test -count=1 ./...
+
+# Race detector tests (CI calls this target)
+race_test:
+	go test -count=1 -race ./...
 
 full_test: race_test test benchmark
-
 
 benchmark:
 	@COMMIT_HASH=$$(git rev-parse --short HEAD); \
@@ -10,17 +16,6 @@ benchmark:
 	echo "Benchmarking results saved in ./testdata/benchmarks/$$TIMESTAMP-$$COMMIT_HASH.txt"; \
 	echo "This could take a while..."; \
 	go test -timeout 30m -bench=. -count 5 -benchmem ./... | tee ./testdata/benchmarks/$$TIMESTAMP-$$COMMIT_HASH.txt
-
-# stats:
-# 	@FILES=$$(ls -1 ./testdata/benchmarks/????-??-??-??-??-??-*.txt 2>/dev/null | sort -r | head -2); \
-# 	if [ $$(echo "$$FILES" | wc -l) -lt 2 ]; then \
-# 		echo "Need at least 2 benchmark files to compare"; \
-# 		exit 1; \
-# 	fi; \
-# 	LATEST=$$(echo "$$FILES" | head -1); \
-# 	PREVIOUS=$$(echo "$$FILES" | tail -1); \
-# 	echo "Comparing $$PREVIOUS (older) vs $$LATEST (newer)"; \
-# 	benchstat "$$PREVIOUS" "$$LATEST"
 
 statsversion:
 	@LATEST=$$(ls -1 ./testdata/benchmarks/????-??-??-??-??-??-*.txt 2>/dev/null | sort -r | head -1); \
@@ -34,9 +29,7 @@ statsversion:
 		exit 1; \
 	fi; \
 	echo "Comparing $$VERSIONED (baseline) vs $$LATEST (current)"; \
-	benchstat "$$VERSIONED" "$$LATEST" 
-
-
+	benchstat "$$VERSIONED" "$$LATEST"
 
 # echo "----- Running benchmarks"
 # if ! [ -x "$(command -v benchstat)" ]
@@ -49,3 +42,13 @@ statsversion:
 #     go test  -bench=. -count 5 ./... | tee ./testdata/benchmarks/after.txt
 # fi
 
+# stats:
+# 	@FILES=$$(ls -1 ./testdata/benchmarks/????-??-??-??-??-??-*.txt 2>/dev/null | sort -r | head -2); \
+# 	if [ $$(echo "$$FILES" | wc -l) -lt 2 ]; then \
+# 		echo "Need at least 2 benchmark files to compare"; \
+# 		exit 1; \
+# 	fi; \
+# 	LATEST=$$(echo "$$FILES" | head -1); \
+# 	PREVIOUS=$$(echo "$$FILES" | tail -1); \
+# 	echo "Comparing $$PREVIOUS (older) vs $$LATEST (newer)"; \
+# 	benchstat "$$PREVIOUS" "$$LATEST"
